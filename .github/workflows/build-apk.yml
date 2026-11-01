@@ -1,0 +1,45 @@
+name: Gerar APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.14.3' }
+      - name: Baixar o timer (HTML + logo) para dentro do app
+        run: |
+          mkdir -p app/src/main/assets app/src/main/res/drawable app/src/main/res/mipmap-xhdpi
+          curl -fsSL https://timer-almeida-jj.vercel.app/index.html -o app/src/main/assets/index.html
+          curl -fsSL https://timer-almeida-jj.vercel.app/logo.webp -o app/src/main/assets/logo.webp
+      - name: Gerar icone e banner do Fire TV a partir do logo
+        run: |
+          pip install --quiet pillow
+          python3 - <<'PY'
+          from PIL import Image
+          im = Image.open('app/src/main/assets/logo.webp').convert('RGBA')
+          def put(w, h, box, out):
+              bg = Image.new('RGBA', (w, h), (11, 11, 10, 255))
+              t = im.copy(); t.thumbnail(box, Image.LANCZOS)
+              bg.alpha_composite(t, ((w - t.width) // 2, (h - t.height) // 2))
+              bg.convert('RGB').save(out)
+          put(320, 180, (150, 160), 'app/src/main/res/drawable/banner.png')
+          put(96, 96, (84, 84), 'app/src/main/res/mipmap-xhdpi/ic_launcher.png')
+          PY
+      - name: Compilar APK
+        run: gradle --no-daemon assembleRelease
+      - run: cp app/build/outputs/apk/release/app-release.apk TimerAlmeida.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: TimerAlmeida-apk, path: TimerAlmeida.apk }
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Timer Almeida JJ ${{ github.run_number }}
+          files: TimerAlmeida.apk
